@@ -51,12 +51,18 @@ Restart `npm run dev` after editing `.env.local`. The header of the guide shows 
 ```bash
 cp scripts/qclaude ~/.local/bin/qclaude && chmod +x ~/.local/bin/qclaude   # once
 cd LC105-revival-threejs-next
-qclaude                       # interactive session on this folder
+qclaude                       # 8-bit  (default — near-lossless, the daily driver)
+qclaude --fast                # 4-bit  (~2× faster, a touch less sharp)
+qclaude --max                 # bf16   (full precision, ~2× slower than 8-bit)
 qclaude -p "explain app/lib/three/viewer.ts"
 QCLAUDE_MODEL=<other-omlx-model-id> qclaude
 ```
 
-It auto‑starts oMLX if it's down, checks the model is served, and reads the API key from `~/.omlx/settings.json`.
+Tiers map to `mlx-community/Qwen3.8-27B-{4bit,8bit,bf16}` (16 / 30 / 55 GB — grab them with `hf download …`). If a tier isn't downloaded yet it falls back 16 → 8 → 4 and says so. It auto‑starts oMLX if it's down, checks the model is served, and reads the API key from `~/.omlx/settings.json`.
+
+Rough M‑series numbers with nothing else on the GPU: ~1,500 tok/s prefill, first Claude Code turn ~80 s at 8‑bit / ~2 min at bf16 (cold model load + the ~20k‑token system prompt), then much faster. **Don't run two local models at once** — an Ollama runner and oMLX sharing the GPU cut prefill to ~90 tok/s and a single turn takes half an hour.
+
+**Prefer GGUF / Ollama?** `ollama pull hf.co/AtomicChat/Qwen3.8-27B-GGUF:Q8_0` (28.9 GB) then point the app at it: `QWEN_BASE_URL=http://127.0.0.1:11434/v1`, `QWEN_MODEL=hf.co/AtomicChat/Qwen3.8-27B-GGUF:Q8_0`, any non‑empty `DASHSCOPE_API_KEY`. GGUF doesn't load in oMLX, so `qclaude` sticks to the MLX builds.
 
 ## Project layout
 
