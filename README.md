@@ -44,6 +44,20 @@ QWEN_BASE_URL=http://127.0.0.1:8000/v1
 
 Restart `npm run dev` after editing `.env.local`. The header of the guide shows **live** or **offline** so you always know which mode you're in.
 
+### Optional: hack on this repo with Claude Code running on local Qwen
+
+`scripts/qclaude` launches Claude Code against the same local oMLX Qwen 3.8 — fully offline, your Anthropic login untouched (it's env‑var only, no `~/.claude/settings.json` edits).
+
+```bash
+cp scripts/qclaude ~/.local/bin/qclaude && chmod +x ~/.local/bin/qclaude   # once
+cd LC105-revival-threejs-next
+qclaude                       # interactive session on this folder
+qclaude -p "explain app/lib/three/viewer.ts"
+QCLAUDE_MODEL=<other-omlx-model-id> qclaude
+```
+
+It auto‑starts oMLX if it's down, checks the model is served, and reads the API key from `~/.omlx/settings.json`.
+
 ## Project layout
 
 ```

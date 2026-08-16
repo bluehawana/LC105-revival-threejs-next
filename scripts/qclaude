@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# qclaude — run Claude Code against the LOCAL oMLX Qwen 3.8 server.
+#
+# Mirrors `omlx launch claude` (env-var only; never touches ~/.claude/settings.json,
+# so your normal `claude` keeps using Anthropic). Usage, from any folder:
+#
+#   qclaude                          # interactive, this directory
+#   qclaude --dangerously-skip-permissions
+#   qclaude -p "explain app/lib/three/viewer.ts"
+#   QCLAUDE_MODEL=Qwen3.6-35B-A3B-4bit qclaude   # any model id from `curl :8000/v1/models`
+#
+# Env overrides: QCLAUDE_MODEL, QCLAUDE_HOST, QCLAUDE_PORT, QCLAUDE_API_KEY, QCLAUDE_CONTEXT
+set -euo pipefail
+
+MODEL="${QCLAUDE_MODEL:-mlx-community--Qwen3.8-27B-4bit}"
+HOST="${QCLAUDE_HOST:-127.0.0.1}"
+PORT="${QCLAUDE_PORT:-8000}"
+CONTEXT="${QCLAUDE_CONTEXT:-131072}"     # oMLX max_context_window for this model
+BASE_URL="http://${HOST}:${PORT}"
+SETTINGS="${HOME}/.omlx/settings.json"
+
+# --- API key: read from oMLX settings unless overridden --------------------
+API_KEY="${QCLAUDE_API_KEY:-}"
+if [[ -z "$API_KEY" && -f "$SETTINGS" ]]; then
+  API_KEY="$(python3 - "$SETTINGS" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("auth", {}).get("api_key", "") or "")
+except Exception:
+    print("")
+PY
+)"
+fi
+[[ -z "$API_KEY" ]] && API_KEY="omlx"   # open server fallback
+
+# --- make sure the oMLX server is up ----------------------------------------
+if ! curl -fs --max-time 3 "${BASE_URL}/v1/models" -H "Authorization: Bearer ${API_KEY}" >/dev/null 2>&1; then
+  echo "qclaude: oMLX not answering on ${BASE_URL} — starting it…" >&2
+  if command -v omlx >/dev/null 2>&1; then
+    omlx start --timeout 90 >&2 || { echo "qclaude: 'omlx start' failed" >&2; exit 1; }
+  else
+    echo "qclaude: 'omlx' CLI not found. Start oMLX.app manually, then retry." >&2
+    exit 1
+  fi
+fi
+
+# --- check the model is actually served -------------------------------------
+if ! curl -fs --max-time 5 "${BASE_URL}/v1/models" -H "Authorization: Bearer ${API_KEY}" \
+     | grep -q "\"${MODEL}\""; then
+  echo "qclaude: model '${MODEL}' not found on ${BASE_URL}. Available:" >&2
+  curl -fs --max-time 5 "${BASE_URL}/v1/models" -H "Authorization: Bearer ${API_KEY}" \
+    | python3 -c 'import json,sys; [print("  -", m["id"]) for m in json.load(sys.stdin)["data"]]' >&2 || true
+  exit 1
+fi
+
+# --- find claude ------------------------------------------------------------
+CLAUDE_BIN="$(command -v claude || true)"
+[[ -z "$CLAUDE_BIN" && -x "$HOME/.claude/local/claude" ]] && CLAUDE_BIN="$HOME/.claude/local/claude"
+[[ -z "$CLAUDE_BIN" ]] && { echo "qclaude: claude CLI not found (npm i -g @anthropic-ai/claude-code)" >&2; exit 1; }
+
+# --- default --model to the local one unless the caller passed their own ----
+PASS_MODEL=1
+for a in "$@"; do [[ "$a" == "--model" || "$a" == --model=* ]] && PASS_MODEL=0; done
+ARGS=("$@")
+[[ $PASS_MODEL -eq 1 ]] && ARGS=(--model "$MODEL" "${ARGS[@]}")
+
+echo "qclaude → ${MODEL} @ ${BASE_URL}  (cwd: $(pwd))" >&2
+
+# Same env contract as `omlx launch claude`; scrub bundled-Python vars, drop any
+# inherited Anthropic creds so nothing leaks to the cloud.
+unset PYTHONHOME PYTHONPATH PYTHONDONTWRITEBYTECODE
+exec env \
+  ANTHROPIC_BASE_URL="$BASE_URL" \
+  ANTHROPIC_AUTH_TOKEN="$API_KEY" \
+  ANTHROPIC_API_KEY="" \
+  ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL" \
+  ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL" \
+  ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL" \
+  CLAUDE_CODE_SUBAGENT_MODEL="$MODEL" \
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW="$CONTEXT" \
+  CLAUDE_CODE_ATTRIBUTION_HEADER=0 \
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+  API_TIMEOUT_MS=3000000 \
+  "$CLAUDE_BIN" "${ARGS[@]}"
