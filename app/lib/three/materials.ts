@@ -39,16 +39,18 @@ type Opt = Partial<{
 }>;
 
 function std(color: string, o: Opt = {}) {
-   return new THREE.MeshStandardMaterial({
+   const params: THREE.MeshStandardMaterialParameters = {
      color: new THREE.Color(color),
      metalness: o.metalness ?? 0.35,
      roughness: o.roughness ?? 0.55,
-     transparent: o.transparent,
-     opacity: o.opacity,
      emissive: new THREE.Color(o.emissive ?? "#000000"),
      emissiveIntensity: o.emissiveIntensity ?? 1,
      side: o.side ?? THREE.FrontSide,
-   });
+   };
+   // Only pass these when set — THREE warns on explicit `undefined`.
+   if (o.transparent !== undefined) params.transparent = o.transparent;
+   if (o.opacity !== undefined) params.opacity = o.opacity;
+   return new THREE.MeshStandardMaterial(params);
 }
 
 /** Painted bodywork. */
