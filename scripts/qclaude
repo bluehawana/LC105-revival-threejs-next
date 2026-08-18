@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# qclaude — run Claude Code against the LOCAL oMLX Qwen 3.8 server.
+# qclaude — run Claude Code against the LOCAL oMLX server.
 #
 # Mirrors `omlx launch claude` (env-var only; never touches ~/.claude/settings.json,
 # so your normal `claude` keeps using Anthropic). Usage, from any folder:
 #
-#   qclaude                          # interactive, this directory (Qwen 3.8 27B, 8-bit)
-#   qclaude --fast                   # 4-bit build  (~2x faster, a bit less sharp)
-#   qclaude --max                    # bf16 build   (full precision, ~2x slower than 8-bit)
+#   qclaude                          # Qwen3-Coder-30B-A3B MoE, 8-bit — the daily
+#                                    # driver: ~7x faster turns than dense 27B
+#                                    # (benchmarked 2026-08-18: 6.5s vs 45s/turn)
+#   qclaude --dense                  # Qwen3.8-27B 8-bit  (bigger dense model)
+#   qclaude --fast                   # Qwen3.8-27B 4-bit  (fast dense)
+#   qclaude --max                    # Qwen3.8-27B bf16   (full-precision dense)
 #   qclaude --dangerously-skip-permissions
 #   qclaude -p "explain app/lib/three/viewer.ts"
 #   QCLAUDE_MODEL=Qwen3.6-35B-A3B-4bit qclaude   # any model id from `curl :8000/v1/models`
@@ -14,17 +17,19 @@
 # Env overrides: QCLAUDE_MODEL, QCLAUDE_HOST, QCLAUDE_PORT, QCLAUDE_API_KEY, QCLAUDE_CONTEXT
 set -euo pipefail
 
+MODEL_MOE="Qwen3-Coder-30B-A3B-Instruct-MLX-8bit"
 MODEL_16BIT="mlx-community--Qwen3.8-27B-bf16"
 MODEL_8BIT="mlx-community--Qwen3.8-27B-8bit"
 MODEL_4BIT="mlx-community--Qwen3.8-27B-4bit"
 
-# --fast → 4-bit, --max → bf16; strip them from the args passed to claude.
-TIER="8"; _ARGS=()
+# Tier flags are stripped from the args passed to claude.
+TIER="moe"; _ARGS=()
 for a in "$@"; do
   case "$a" in
-    --fast) TIER="4" ;;
-    --max)  TIER="16" ;;
-    *)      _ARGS+=("$a") ;;
+    --dense) TIER="8" ;;
+    --fast)  TIER="4" ;;
+    --max)   TIER="16" ;;
+    *)       _ARGS+=("$a") ;;
   esac
 done
 set -- "${_ARGS[@]+"${_ARGS[@]}"}"
@@ -32,7 +37,8 @@ set -- "${_ARGS[@]+"${_ARGS[@]}"}"
 if [[ -n "${QCLAUDE_MODEL:-}" ]]; then MODEL="$QCLAUDE_MODEL"
 elif [[ "$TIER" == "4" ]]; then MODEL="$MODEL_4BIT"
 elif [[ "$TIER" == "16" ]]; then MODEL="$MODEL_16BIT"
-else MODEL="$MODEL_8BIT"; fi
+elif [[ "$TIER" == "8" ]]; then MODEL="$MODEL_8BIT"
+else MODEL="$MODEL_MOE"; fi
 HOST="${QCLAUDE_HOST:-127.0.0.1}"
 PORT="${QCLAUDE_PORT:-8000}"
 CONTEXT="${QCLAUDE_CONTEXT:-131072}"     # oMLX max_context_window for this model
@@ -64,10 +70,10 @@ if ! curl -fs --max-time 3 "${BASE_URL}/v1/models" -H "Authorization: Bearer ${A
   fi
 fi
 
-# --- check the model is served; fall back down the tiers 16 → 8 → 4 ---------
+# --- check the model is served; fall back moe → 8 → 4 -----------------------
 served() { curl -fs --max-time 5 "${BASE_URL}/v1/models" -H "Authorization: Bearer ${API_KEY}" | grep -q "\"$1\""; }
 if ! served "$MODEL"; then
-  for alt in "$MODEL_8BIT" "$MODEL_4BIT"; do
+  for alt in "$MODEL_MOE" "$MODEL_8BIT" "$MODEL_4BIT"; do
     [[ "$alt" == "$MODEL" ]] && continue
     if served "$alt"; then
       echo "qclaude: '${MODEL}' not available yet on ${BASE_URL} — using ${alt}." >&2
