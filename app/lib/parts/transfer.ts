@@ -24,13 +24,19 @@ export function buildTransfer(): THREE.Group {
   }
 
   // Front output yoke (toward +X) and rear output yoke (toward -X).
-  add(g, layAlongX(cyl(0.05, 0.16, metal(PALETTE.steelDark), 0.28, -0.02, -0.16, 16)) as THREE.Mesh);
-  add(g, layAlongX(cyl(0.05, 0.16, metal(PALETTE.steelDark), -0.28, -0.02, -0.16, 16)) as THREE.Mesh);
+  // Named so the 3-Lock Lab can spin them with the shafts.
+  const yokeF = layAlongX(cyl(0.05, 0.16, metal(PALETTE.steelDark), 0.28, -0.02, -0.16, 16)) as THREE.Mesh;
+  yokeF.name = "shaft-front";
+  add(g, yokeF);
+  const yokeR = layAlongX(cyl(0.05, 0.16, metal(PALETTE.steelDark), -0.28, -0.02, -0.16, 16)) as THREE.Mesh;
+  yokeR.name = "shaft-rear";
+  add(g, yokeR);
   // Input from the transmission (toward -X, on the main lobe).
   add(g, layAlongX(cyl(0.06, 0.12, metal(PALETTE.steelDark), -0.26, 0.02, 0.06, 16)) as THREE.Mesh);
 
   // ---- LOCK 2: the centre differential lock actuator (red). ----
   const l2 = cyl(0.07, 0.14, lockMat(), 0.04, 0.24, 0.02, 20);
+  l2.name = "lock-2";
   add(g, l2);
   add(g, box(0.05, 0.05, 0.05, lockMat(), 0.04, 0.33, 0.02));
   // The two lever shafts running to the front & rear locks (thin red rods).

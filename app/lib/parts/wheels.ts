@@ -40,13 +40,16 @@ export function buildWheels(): THREE.Group {
   const X = 1.35;
   const Z = 0.9;
   const Y = 0.39;
-  for (const [x, z] of [
-    [X, Z],
-    [X, -Z],
-    [-X, Z],
-    [-X, -Z],
-  ]) {
+  // Named so the 3-Lock Lab can spin each corner independently.
+  const corners: [string, number, number][] = [
+    ["wheel-fl", X, Z],
+    ["wheel-fr", X, -Z],
+    ["wheel-rl", -X, Z],
+    ["wheel-rr", -X, -Z],
+  ];
+  for (const [name, x, z] of corners) {
     const w = wheel();
+    w.name = name;
     w.position.set(x, Y, z);
     // Flip the outer wheels so the dish faces out.
     if (z < 0) w.rotation.y = Math.PI;

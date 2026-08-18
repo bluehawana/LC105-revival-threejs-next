@@ -30,7 +30,9 @@ function solidAxle(opts: { front: boolean }): THREE.Group {
   add(g, nose);
 
   // The differential LOCK actuator — the red call-out. Front = lock 1, rear = lock 3.
+  // Named so the 3-Lock Lab can glow each actuator when its lock engages.
   const lock = layAlongZ(cyl(0.06, 0.12, lockMat(), 0, 0.14, off, 16)) as THREE.Mesh;
+  lock.name = opts.front ? "lock-1" : "lock-3";
   add(g, lock);
   add(g, box(0.06, 0.06, 0.06, lockMat(), 0, 0.22, off));
 

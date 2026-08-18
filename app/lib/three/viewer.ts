@@ -4,6 +4,7 @@ import gsap from "gsap";
 import { SYSTEMS, type SystemId, type SystemSpec } from "../lc105-data";
 import { BUILDERS } from "../parts";
 import { disposeObject } from "./dispose";
+import { FREE, type DriveState, type LockId, type Locks } from "../drive";
 
 /**
  * AssemblyViewer — the raw three.js engine behind the LC105 build.
@@ -55,6 +56,12 @@ export class AssemblyViewer {
   private idleSpin = true;
   private lastT = 0;
   private tl: gsap.core.Timeline | null = null;
+  // 3-Lock Lab rig: the named spinners and lock call-outs found in buildParts.
+  private drive: DriveState | null = null;
+  private driveLocks: Locks = { 1: false, 2: false, 3: false };
+  private spinners: { obj: THREE.Object3D; axis: "x" | "z"; sign: number }[] = [];
+  private spinVel: number[] = [];
+  private lockGlows = new Map<LockId, THREE.MeshStandardMaterial[]>();
 
   constructor(canvas: HTMLCanvasElement, events: ViewerEvents = {}) {
     this.canvas = canvas;
@@ -81,6 +88,7 @@ export class AssemblyViewer {
 
     this.buildScene();
     this.buildParts();
+    this.findDriveRig();
     this.setAssemble(0);
 
     canvas.addEventListener("pointermove", this.onPointerMove);
@@ -173,6 +181,97 @@ export class AssemblyViewer {
       this.root.add(group);
       this.parts.set(spec.id, { spec, group, a: 0, mats, base });
     }
+  }
+
+  // ----------------------------------------------------------------- drive --
+
+  /**
+   * The named rotors the 3-Lock Lab animates: the four wheels (each spins
+   * about its own axle), the front/rear prop-shaft yokes, and the engine fan.
+   * Index order is [fl, fr, rl, rr, shaft-front, shaft-rear, fan] — it must
+   * match the DriveState layout the lab feeds in.
+   */
+  private findDriveRig() {
+    const get = (n: string) => this.root.getObjectByName(n);
+    // Front is +X and the left wheels sit at +Z, so a forward (truck +X) roll
+    // is a positive z-spin on the left pair and a negative one on the right.
+    const corners: [string, number][] = [
+      ["wheel-fl", 1],
+      ["wheel-fr", -1],
+      ["wheel-rl", 1],
+      ["wheel-rr", -1],
+    ];
+    for (const [name, sign] of corners) {
+      const o = get(name);
+      if (o) {
+        this.spinners.push({ obj: o, axis: "z", sign });
+        this.spinVel.push(0);
+      }
+    }
+    for (const name of ["shaft-front", "shaft-rear"]) {
+      const o = get(name);
+      if (o) {
+        this.spinners.push({ obj: o, axis: "x", sign: 1 });
+        this.spinVel.push(0);
+      }
+    }
+    const fan = get("engine-fan");
+    if (fan) {
+      this.spinners.push({ obj: fan, axis: "x", sign: 1 });
+      this.spinVel.push(0);
+    }
+    for (const l of [1, 2, 3] as LockId[]) {
+      const o = get(`lock-${l}`);
+      if (!o) continue;
+      const mats: THREE.MeshStandardMaterial[] = [];
+      o.traverse((m) => {
+        const mm = m as THREE.Mesh;
+        if (mm.isMesh && (mm.material as THREE.MeshStandardMaterial).isMeshStandardMaterial)
+          mats.push(mm.material as THREE.MeshStandardMaterial);
+      });
+      if (mats.length) this.lockGlows.set(l, mats);
+    }
+  }
+
+  /**
+   * Feed the lab's verdict into the scene. `state` is the output of
+   * `drive.simulate` (or null when the lab is closed / engine off); `locks`
+   * drives the red actuator glow on the transfer case and both diffs.
+   */
+  setDrive(state: DriveState | null, locks?: Locks) {
+    this.drive = state;
+    if (locks) this.driveLocks = locks;
+    this.applyLockGlow();
+  }
+
+  private applyLockGlow() {
+    this.lockGlows.forEach((mats, l) => {
+      const on = this.driveLocks[l];
+      for (const m of mats) m.emissiveIntensity = on ? 1.1 : 0.15;
+    });
+    this.dirty = true;
+  }
+
+  // Display spin → scene rad/s. 1 = full-grip truck speed, FREE = free-spinning.
+  private stepDrive(dt: number) {
+    const d = this.drive;
+    const k = 1 - Math.exp(-dt * 5); // coast smoothly instead of snapping
+    let moving = false;
+    this.spinners.forEach((sp, i) => {
+      let target = 0;
+      if (d) {
+        const s = i < 4 ? d.wheels[i] : i < 6 ? d.shafts[i - 4] : -1;
+        target = s === -1 ? (d.running ? FAN_OMEGA : 0) : s === FREE ? FREE_OMEGA : s * TRUCK_OMEGA;
+      }
+      this.spinVel[i] += (target - this.spinVel[i]) * k;
+      if (target === 0 && Math.abs(this.spinVel[i]) < 0.01) this.spinVel[i] = 0;
+      if (this.spinVel[i] !== 0) {
+        if (sp.axis === "z") sp.obj.rotation.z += sp.sign * this.spinVel[i] * dt;
+        else sp.obj.rotation.x += sp.sign * this.spinVel[i] * dt;
+        moving = true;
+      }
+    });
+    if (moving) this.dirty = true;
   }
 
   // ------------------------------------------------------------- assembly --
@@ -303,7 +402,8 @@ export class AssemblyViewer {
         if (m.transparent !== wasTransparent) m.needsUpdate = true;
       });
     }
-    this.dirty = true;
+    // Lock glow is its own channel — restore it after the base-state reset.
+    this.applyLockGlow();
   }
 
   highlight(id: SystemId | null) {
@@ -373,7 +473,9 @@ export class AssemblyViewer {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(0.05, (t - this.lastT) / 1000);
     this.lastT = t;
-    if (this.idleSpin && this.globalA > 0.999 && !this.selected) {
+    this.stepDrive(dt);
+    // No lazy turntable while the lab has the engine turning.
+    if (this.idleSpin && this.globalA > 0.999 && !this.selected && !this.drive?.running) {
       this.root.rotation.y += dt * 0.12;
       this.dirty = true;
     }
@@ -418,6 +520,12 @@ export class AssemblyViewer {
 function clamp01(x: number) {
   return Math.min(1, Math.max(0, x));
 }
+
+// Display-spin → rad/s. A 0.39 m tyre at 2.4 rad/s reads as "rolling along";
+// a free wheel on ice goes the other way, fast, on purpose.
+const TRUCK_OMEGA = 2.4;
+const FREE_OMEGA = 7.5;
+const FAN_OMEGA = 5;
 
 /** A soft radial gradient used as a fake contact shadow. */
 function makeShadowTexture() {

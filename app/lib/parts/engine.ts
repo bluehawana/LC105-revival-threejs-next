@@ -63,6 +63,8 @@ export function buildEngine(): THREE.Group {
     fan.add(p);
   }
   fan.position.set(0.5, -0.06, 0);
+  // Named so the 3-Lock Lab can idle the fan while the engine is running.
+  fan.name = "engine-fan";
   g.add(fan);
   // Alternator.
   add(g, layAlongX(cyl(0.07, 0.12, metal(PALETTE.steel), 0.3, 0.16, 0.3, 16)) as THREE.Mesh);

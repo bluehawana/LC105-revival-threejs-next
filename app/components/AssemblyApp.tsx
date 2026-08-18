@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Code2, PanelRightOpen, PanelRightClose } from "lucide-react";
+import { Bot, Code2, Gauge, PanelRightOpen, PanelRightClose } from "lucide-react";
 import AssemblyViewer from "./AssemblyViewer";
 import PartsPanel from "./PartsPanel";
 import BuildTimeline from "./BuildTimeline";
 import PartInfo from "./PartInfo";
 import AiGuide from "./AiGuide";
+import LockLab from "./LockLab";
 import type { AssemblyViewer as Engine } from "../lib/three/viewer";
 import { SYSTEMS, type SystemId } from "../lib/lc105-data";
 
@@ -24,6 +25,8 @@ export default function AssemblyApp() {
   const [fractions, setFractions] = useState<Record<SystemId, number>>(emptyFractions);
   const [panelOpen, setPanelOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [labOpen, setLabOpen] = useState(false);
+  const [viewer, setViewer] = useState<Engine | null>(null);
   const [ready, setReady] = useState(false);
 
   // Sample per-part fractions from the engine whenever progress changes.
@@ -57,6 +60,7 @@ export default function AssemblyApp() {
         if (v) v.assembleTo(v.assemble > 0.5 ? 0 : 1);
       }
       if (e.key === "?") setGuideOpen((o) => !o);
+      if (e.key === "l" || e.key === "L") setLabOpen((o) => !o);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -101,6 +105,16 @@ export default function AssemblyApp() {
           </a>
           <button
             type="button"
+            onClick={() => setLabOpen(true)}
+            className={[
+              "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium",
+              labOpen ? "border-[var(--sand)] text-[var(--sand)]" : "border-[var(--line)] hover:border-[var(--sand)]",
+            ].join(" ")}
+          >
+            <Gauge size={14} className="text-[var(--sand)]" /> 3-Lock Lab
+          </button>
+          <button
+            type="button"
             onClick={() => setGuideOpen((o) => !o)}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--line)] px-2.5 text-[12px] font-medium hover:border-[var(--sand)]"
           >
@@ -124,6 +138,7 @@ export default function AssemblyApp() {
             <AssemblyViewer
               onReady={(v) => {
                 engine.current = v;
+                setViewer(v);
                 setReady(true);
               }}
               onSelect={select}
@@ -167,12 +182,13 @@ export default function AssemblyApp() {
           <PartInfo id={selected} fraction={selected ? fractions[selected] : 0} onClose={() => select(null)} onToggle={toggle} />
           <PartsPanel selected={selected} hovered={hovered} fractions={fractions} onSelect={select} onHover={setHovered} onToggle={toggle} />
           <p className="mono px-1 pb-2 text-[10px] leading-relaxed text-[var(--fg-3)]">
-            Drag to orbit · scroll to zoom · click a part · double-click to fit / remove · Space = build/explode · Esc = clear · ? = guide
+            Drag to orbit · scroll to zoom · click a part · double-click to fit / remove · Space = build/explode · Esc = clear · ? = guide · L = 3-lock lab
           </p>
         </aside>
       </div>
 
       <AiGuide open={guideOpen} onClose={() => setGuideOpen(false)} focus={selected} />
+      <LockLab open={labOpen} onClose={() => setLabOpen(false)} engine={viewer} />
     </div>
   );
 }
